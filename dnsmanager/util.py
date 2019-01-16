@@ -1,52 +1,30 @@
-from functools import wraps
 
-import click
-from core import DNSService
-
-def zone_check(f):
-    def decorated_func(ctx, **kwargs):
-        zone = kwargs.get("zone")
-        config = ctx.obj["CONFIG"]
-        if not config.has_section(zone):
-            raise click.BadParameter(
-                message="You need to register DNS Zone first before importing the record!",
-                param_hint=zone
-            )
-        zone = config[zone]
-        service = DNSService(
-            nameserver=zone.get("server"),
-            keyring_name=zone.get("keyring_name"),
-            keyring_value=zone.get("keyring_value")
-        )
-        kwargs["service"] = service
-        return f(ctx, **kwargs)
+def prompt_for_password(prompt):
+    import getpass
+    return getpass.getpass(
+        prompt=prompt
+    )
     
-    return decorated_func
+def prompt_y_n_question(question, default="no"):
+    valid = {
+        "yes": True, "y": True, "ye": True,
+        "no": False, "n": False
+    }
+    if default is None:
+        prompt = " [y/n] "
+    elif default == "yes":
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError("Invalid default answer: '{}'".format(default))
 
-def zone_validator(ctx, param, value):
-    if not value:
-        fqdn = ctx.params.get("fqdn")
-        zone = ".".join(fqdn.split(".")[1:])
-        return zone
-    return value    
-
-def fqdn_validator(ctx, param, value):
-    if value:
-        ctx.params["record_name"] = value.split(".")[0]
-    return value
-
-def depend_on(key, required=False):
-
-    def validate(ctx, param, value):
-        if ctx.params.get(key) is not None and value is None and required:
-            raise click.BadParameter(
-                message=f"Invalid option, {param.name} should be set cause it required if {key} are set",
-                param_hint=param.name
-            )
-        elif ctx.params.get(key) is None and value:
-            raise click.BadParameter(
-                message=f"This value can't be blank if {key} are set",
-                param_hint=param.name
-            )
-        return value
-    return validate
+    while True:
+        print(question + prompt)
+        choice = input().lower()
+        if default is not None and choice == '':
+            return valid[default]
+        elif choice in valid:
+            return valid[choice]
+        else:
+            print("Please, respond with 'yes' or 'no' or 'y' or 'n'.")

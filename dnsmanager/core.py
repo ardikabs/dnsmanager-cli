@@ -5,6 +5,7 @@ import dns.rdatatype
 import dns.query
 import dns.zone
 import dns.rdataclass
+import dns.tsig
 from dns.exception import DNSException
 from enum import Enum
 import logging
@@ -44,27 +45,21 @@ class DNSService(object):
 
         data = dns.update.Update(self.zone, keyring=self.keyring)
         data.add(self.record_name, self.record_ttl, self.record_type.value, self.record_content)
-        result = dns.query.tcp(data, self.nameserver, timeout=self.timeout)
-        return self.response(result)
+        return self.handler(data)
     
     def replace_record(self, **kwargs):
         self._set_record_attribute(**kwargs)
 
         data = dns.update.Update(self.zone, keyring=self.keyring)
         data.replace(self.record_name, self.record_ttl, self.record_type.value, self.record_content)
-        result = dns.query.tcp(data, self.nameserver, timeout=self.timeout)
-        return self.response(result)
+        return self.handler(data)
 
     def remove_record(self, **kwargs):
         self._set_record_attribute(**kwargs)
 
         data = dns.update.Update(self.zone, keyring=self.keyring)
         data.delete(self.record_name)
-        result = dns.query.tcp(data, self.nameserver, timeout=self.timeout)
-        return self.response(result)
-
-    def response(self, result):
-        return str(result).split("\n")[2].split(" ")[1]
+        return self.handler(data)
 
     def import_records(self, domain):
         zone = None
@@ -97,3 +92,27 @@ class DNSService(object):
                     records.append(todict)
         return records
 
+    def handler(self, data):
+        try:
+            result = dns.query.tcp(data, self.nameserver, timeout=self.timeout)
+            self.process_result = str(result)
+            response = str(result).split("\n")[2].split(" ")[1]
+        except dns.tsig.PeerBadKey as e:
+            response = "Looks like you have a wrong key to be used to communicate with DNS Server [BADKEY]"
+        except dns.tsig.PeerBadTime as e:
+            response = "Looks like you have unsynchronized datetime on DNS Server [BADTIME]"
+        except dns.tsig.PeerBadSignature as e:
+            response = "Looks like you have wrong signature to communite with DNS Server [BADSIGNATURE]"
+        except dns.tsig.PeerError as e:
+            response = str(e)
+        finally:
+            return response
+    
+    @property
+    def process_msg(self):
+        try:
+            res = self.process_result
+        except AttributeError:
+            return None
+        else:
+            return self.process_result

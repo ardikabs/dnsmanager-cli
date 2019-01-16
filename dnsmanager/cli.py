@@ -4,7 +4,13 @@ import click
 import configparser as cp
 import json
 from core import DNSService
-from util import zone_check, zone_validator, fqdn_validator, depend_on
+from support import (
+    zone_check, 
+    zone_validator, 
+    fqdn_validator, 
+    depend_on,
+    check_existing_record
+)
 
 RTYPE_CHOICES = ["A", "CNAME", "PTR", "MX", "TXT", "SRV"]
 
@@ -14,6 +20,8 @@ RTYPE_CHOICES = ["A", "CNAME", "PTR", "MX", "TXT", "SRV"]
     help="Configuration file path or use ENV variable with name DNSMANAGER_CONFIG_PATH")
 @click.pass_context
 def cli(ctx, config_path):
+    if config_path is None:
+        raise click.BadParameter(message="Configuration file are not set")
     config = cp.ConfigParser()
     config.read(config_path)
     ctx.ensure_object(dict)
@@ -101,6 +109,15 @@ def new(ctx, service, zone, record_name, content, rtype, ttl, force):
             record_ttl=ttl
         )
     else:    
+        data = service.import_records(domain=zone)
+        if data:
+            exist = list(
+                filter(check_existing_record(name=record_name, zone=zone, rtype=rtype),data)
+            )
+            if len(exist) > 0:
+                raise click.exceptions.UsageError(
+                    message=f"DNS Record already exist {record_name} in zone {zone}"
+                )
         result = service.add_record(
             zone=zone,
             record_name=record_name,
@@ -112,11 +129,13 @@ def new(ctx, service, zone, record_name, content, rtype, ttl, force):
     if result == "NOERROR":
         click.echo(f"Successfully add record ({record_name}) in zone {zone}")
     else:
-        click.echo("Something bad happen")
-        click.echo(f"[ERROR] {result}")
+        if service.process_msg:
+            click.echo(f"Process Message: {service.process_msg}")
+        raise click.exceptions.UsageError(
+            message=result
+        )
 
-
-@click.command("update", short_help="Update a DNS Record")
+@cli.command("update", short_help="Update a DNS Record")
 @click.argument("record_name")
 @click.option("--zone", required=True, type=click.STRING, help="DNS Zone that available on configuration file")
 @click.option("--content", required=True, type=click.STRING, help="Record content")
@@ -140,10 +159,13 @@ def update(ctx, service, zone, record_name, content, rtype, ttl):
     if result == "NOERROR":
         click.echo(f"Successfully update record ({record_name}) in zone {zone}")
     else:
-        click.echo("Something bad happen")
-        click.echo(f"[ERROR] {result}")
+        if service.process_msg:
+            click.echo(f"Process Message: {service.process_msg}")
+        raise click.exceptions.UsageError(
+            message=result
+        )
 
-@click.command("rm", short_help="Remove a DNS Record")
+@cli.command("rm", short_help="Remove a DNS Record")
 @click.argument("fqdn", callback=fqdn_validator)
 @click.option("--zone", callback=zone_validator, type=click.STRING, help="DNS Zone that available on configuration file")
 @click.pass_context
@@ -156,12 +178,39 @@ def remove(ctx, service, zone, record_name, fqdn):
     if result == "NOERROR":
         click.echo(f"Successfully remove record ({record_name}) in zone {zone}")
     else:
-        click.echo("Something bad happen")
-        click.echo(f"[ERROR] {result}")
+        if service.process_msg:
+            click.echo(f"Process Message: {service.process_msg}")
+        raise click.exceptions.UsageError(
+            message=result
+        )
 
+@cli.command("check", short_help="Check a DNS Record")
+@click.argument("fqdn", callback=fqdn_validator)
+@click.option("--zone", callback=zone_validator, type=click.STRING, help="DNS Zone that available on configuration file")
+@click.pass_context
+@zone_check
+def check(ctx, service, zone, record_name, fqdn):
+    data = service.import_records(domain=zone)
+    if data:
+        exists = list(
+            filter(check_existing_record(name=record_name, zone=zone),data)
+        )
+
+        click.echo(">> DNS Record Information <<")
+        for d in exists:
+            click.echo(f"> FQDN: {d.get('name')}.{d.get('zone')}")
+            click.echo(f"> Name: {d.get('name')}")
+            click.echo(f"> Content: {d.get('content')}")
+            click.echo(f"> RType: {d.get('rtype')}")
+            click.echo(f"> TTL: {d.get('ttl')}")
+            click.echo(f"> Zone: {d.get('zone')}\n")
+
+    else:
+        click.echo("No data")
 
 cli.add_command(configuration)
 cli.add_command(importing)
+cli.add_command(check)
 cli.add_command(new)
 cli.add_command(update)
 cli.add_command(remove)
