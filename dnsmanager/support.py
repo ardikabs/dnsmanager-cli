@@ -2,7 +2,7 @@
 from functools import wraps
 
 import click
-from core import DNSService
+from .core import DNSService
 
 def zone_check(f):
     def decorated_func(ctx, **kwargs):
@@ -35,6 +35,7 @@ def fqdn_validator(ctx, param, value):
     if value:
         ctx.params["record_name"] = value.split(".")[0]
     return value
+
 
 def depend_on(key, required=False):
 

@@ -3,8 +3,9 @@ import sys
 import click
 import configparser as cp
 import json
-from core import DNSService
-from support import (
+from . import __version__
+from .core import DNSService
+from .support import (
     zone_check, 
     zone_validator, 
     fqdn_validator, 
@@ -14,20 +15,26 @@ from support import (
 
 RTYPE_CHOICES = ["A", "CNAME", "PTR", "MX", "TXT", "SRV"]
 
-@click.group()
-@click.option("--config-path", envvar="DNSMANAGER_CONFIG_PATH",
-    type=click.Path(exists=True),
-    help="Configuration file path or use ENV variable with name DNSMANAGER_CONFIG_PATH")
+
+@click.group(invoke_without_command=True)
+@click.option("-v", "--version", is_flag=True, help="DNSManager Version")
+@click.option("--config-file", envvar="DNSMANAGER_CONFIG_FILEPATH",
+    type=click.File("r"),
+    help="Configuration file path or use ENV variable with name DNSMANAGER_CONFIG_FILEPATH")
 @click.pass_context
-def cli(ctx, config_path):
-    if config_path is None:
+def cli(ctx, config_file, version):
+    if version:
+        click.echo(f"DNSManager Version {__version__}")
+        raise click.exceptions.Exit(code=1)
+
+    if config_file is None:
         raise click.BadParameter(message="Configuration file are not set")
     config = cp.ConfigParser()
-    config.read(config_path)
+    config.read(os.path.realpath(config_file.name))
     ctx.ensure_object(dict)
     ctx.obj["CONFIG"] = config
-    ctx.obj["CONFIG_PATH"] = config_path
-    
+    ctx.obj["CONFIG_PATH"] = os.path.realpath(config_file.name)
+
 @cli.command("config", short_help="DNS Manager configuration")
 @click.option("--show", is_flag=True, help="Show all configuration")
 @click.option("--zone-name", type=click.STRING, help="Zone name to be added on config file")
@@ -76,15 +83,14 @@ def configuration(ctx, show, **kwargs):
 
 @cli.command("import", short_help="DNS Manager import record from zone")
 @click.argument("zone", required=True)
-@click.option("-o","--out-path", "out", envvar="DNSMANAGER_IMPORT_PATH",
-    type=click.File("w"), default="out.json",
-    help="Destination output file after import record from DNS zone")
+@click.option("-f","--out-file", "out", type=click.File("w"),
+    help="Destination output file name after import record from DNS zone")
 @click.pass_context
 @zone_check
 def importing(ctx, service, zone, out):
     result = service.import_records(domain=zone)
     out.write(json.dumps(result, indent=4))
-    click.echo(f"Successfully imported {len(result)} in {out.name}")
+    click.echo(f"Successfully imported {len(result)} in {os.path.realpath(out.name)}")
 
 @cli.command("new", short_help="Add new DNS Record")
 @click.argument("record_name")
@@ -197,13 +203,16 @@ def check(ctx, service, zone, record_name, fqdn):
         )
 
         click.echo(">> DNS Record Information <<")
-        for d in exists:
-            click.echo(f"> FQDN: {d.get('name')}.{d.get('zone')}")
-            click.echo(f"> Name: {d.get('name')}")
-            click.echo(f"> Content: {d.get('content')}")
-            click.echo(f"> RType: {d.get('rtype')}")
-            click.echo(f"> TTL: {d.get('ttl')}")
-            click.echo(f"> Zone: {d.get('zone')}\n")
+        if not exists:
+            click.echo(f"FQDN ({fqdn}): Not available")
+        else:
+            for d in exists:
+                click.echo(f"-> FQDN: {fqdn}")
+                click.echo(f"-> Name: {d.get('name')}")
+                click.echo(f"-> Content: {d.get('content')}")
+                click.echo(f"-> RType: {d.get('rtype')}")
+                click.echo(f"-> TTL: {d.get('ttl')}")
+                click.echo(f"-> Zone: {d.get('zone')}\n")
 
     else:
         click.echo("No data")
