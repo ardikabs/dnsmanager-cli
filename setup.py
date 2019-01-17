@@ -13,8 +13,7 @@ setup(
     url=__url__,
     py_modules=['dnsmanager'],
     install_requires=['click', "dnspython"],
-    packages=["dnsmanager"],
-    package_dir={"dnsmanager": "dnsmanager"},
+    packages=find_packages(),
     entry_points = '''
         [console_scripts]
         dnsmanager=dnsmanager.cli:cli

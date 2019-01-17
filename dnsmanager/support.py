@@ -1,62 +1,65 @@
 
-from functools import wraps
-
 import click
 from .core import DNSService
 
-def zone_check(f):
-    def decorated_func(ctx, **kwargs):
-        zone = kwargs.get("zone")
-        config = ctx.obj["CONFIG"]
-        if not config.has_section(zone):
-            raise click.BadParameter(
-                message="You need to register DNS Zone first before importing the record!",
-                param_hint=zone
-            )
-        zone = config[zone]
-        service = DNSService(
-            nameserver=zone.get("server"),
-            keyring_name=zone.get("keyring_name"),
-            keyring_value=zone.get("keyring_value")
-        )
-        kwargs["service"] = service
-        return f(ctx, **kwargs)
-    
-    return decorated_func
+def init_service(zone_section):
+    service = DNSService(
+        nameserver=zone_section.get("server"),
+        keyring_name=zone_section.get("keyring_name"),
+        keyring_value=zone_section.get("keyring_value")
+    )
+    return service
 
-def zone_validator(ctx, param, value):
-    if not value:
-        fqdn = ctx.params.get("fqdn")
-        zone = ".".join(fqdn.split(".")[1:])
-        return zone
-    return value    
+def check_availability_zone(ctx, param, value):
+    config = ctx.obj["CONFIG"]
+    if not config.has_section(value):
+        raise click.BadParameter(
+            message=f"DNS Zone ({value}) not found in configuration file ({ctx.obj['CONFIG_FILEPATH']})!",
+            param_hint=value
+        )
+    return value
 
 def fqdn_validator(ctx, param, value):
     if value:
         ctx.params["record_name"] = value.split(".")[0]
     return value
 
+def zone_validator(ctx, param, value):
+    if not value and ctx.params.get("fqdn") is not None:
+        fqdn = ctx.params.get("fqdn")
+        value = ".".join(fqdn.split(".")[1:])
+
+    return check_availability_zone(ctx, param, value)
 
 def depend_on(key, required=False):
 
     def validate(ctx, param, value):
         if ctx.params.get(key) is not None and value is None and required:
             raise click.BadParameter(
-                message=f"Invalid option, {param.name} should be set cause it required if {key} are set",
+                message=f"Option {param.name.upper()} can't be blank if {key.upper()} are set",
                 param_hint=param.name
             )
         elif ctx.params.get(key) is None and value:
             raise click.BadParameter(
-                message=f"This value can't be blank if {key} are set",
+                message=f"Option {key.upper()} can't be blank if {param.name.upper()} are set",
                 param_hint=param.name
             )
         return value
     return validate
 
-def check_existing_record(name, zone, rtype=None):
+def check_existing_record_with_name(name, zone, rtype=None):
 
     def filtering(data):
         comparator = (data.get("name") == name and data.get("zone") == zone)
+        if rtype:
+            comparator = comparator and data.get("rtype") == rtype
+        return comparator
+    return filtering
+
+def check_existing_record_with_content(content, zone, rtype=None):
+
+    def filtering(data):
+        comparator = (data.get("content") == content and data.get("zone") == zone)
         if rtype:
             comparator = comparator and data.get("rtype") == rtype
         return comparator

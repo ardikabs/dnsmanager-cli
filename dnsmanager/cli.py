@@ -6,103 +6,181 @@ import json
 from . import __version__
 from .core import DNSService
 from .support import (
-    zone_check, 
+    init_service,
+    fqdn_validator,
     zone_validator, 
-    fqdn_validator, 
+    check_existing_record_with_name,
+    check_existing_record_with_content,
+    check_availability_zone,
     depend_on,
-    check_existing_record
 )
+from .util import *
+from .modules.config.tools import *
 
 RTYPE_CHOICES = ["A", "CNAME", "PTR", "MX", "TXT", "SRV"]
 
 
 @click.group(invoke_without_command=True)
-@click.option("-v", "--version", is_flag=True, help="DNSManager Version")
-@click.option("--config-file", envvar="DNSMANAGER_CONFIG_FILEPATH",
+@click.version_option(
+    version=__version__, 
+    prog_name="DNSManager",
+    message=('%(prog)s version %(version)s')
+)
+@click.option(
+    "--generate-config",
+    "generate",
+    is_flag=True,
+    help="Generate base configuration file"
+)
+@click.option(
+    "--config-file", envvar="DNSMANAGER_CONFIG_FILEPATH",
     type=click.File("r"),
-    help="Configuration file path or use ENV variable with name DNSMANAGER_CONFIG_FILEPATH")
+    help="Configuration file path or use ENV variable with name DNSMANAGER_CONFIG_FILEPATH"
+)
 @click.pass_context
-def cli(ctx, config_file, version):
-    if version:
-        click.echo(f"DNSManager Version {__version__}")
-        raise click.exceptions.Exit(code=1)
+def cli(ctx, config_file, generate):
+    if generate:
+        config = cp.RawConfigParser()
+        config.add_section("DEFAULTS")
+        config.set("DEFAULTS", "rtype", "A")
+        config.set("DEFAULTS", "ttl", 300)
+        
+        config.add_section("example.com")
+        config.set("example.com", "server", "ns1.example.com")
+        config.set("example.com", "keyring_name", "example-key")
+        config.set("example.com", "keyring_value", "ZXhhbXBsZS5jb21rZXlyaW5ndmFsdWU==")
+        with open("config.ini", "w") as file:
+            config.write(file)
+        sys.exit(1)
 
     if config_file is None:
         raise click.BadParameter(message="Configuration file are not set")
+
     config = cp.ConfigParser()
     config.read(os.path.realpath(config_file.name))
     ctx.ensure_object(dict)
     ctx.obj["CONFIG"] = config
-    ctx.obj["CONFIG_PATH"] = os.path.realpath(config_file.name)
+    ctx.obj["CONFIG_FILEPATH"] = os.path.realpath(config_file.name)
 
 @cli.command("config", short_help="DNS Manager configuration")
-@click.option("--show", is_flag=True, help="Show all configuration")
-@click.option("--zone-name", type=click.STRING, help="Zone name to be added on config file")
-@click.option("--zone-remove", type=click.STRING, help="Zone name to be deleted from config file")
-@click.option("--zone-server", type=click.STRING, callback=depend_on("zone_name", required=True), help="Zone server (DNS Server) to be added on config file. It can be IPv4 address or FQDN")
-@click.option("--keyring-name", callback=depend_on("zone_name", required=True), type=click.STRING, help="Zone keyring name to be added on config file")
-@click.option("--keyring-value", callback=depend_on("zone_name", required=True), type=click.STRING, help="Zone keyring value to be added on config file")
+@click.option(
+    "--show", 
+    is_flag=True, 
+    help="Show all configuration"
+)
+@click.option(
+    "--zone-name", 
+    type=click.STRING, 
+    help="Zone name to be added on config file"
+)
+@click.option(
+    "--zone-remove", 
+    type=click.STRING, 
+    help="Zone name to be deleted from config file"
+)
+@click.option(
+    "--zone-server", 
+    type=click.STRING, 
+    callback=depend_on("zone_name", required=True), 
+    help="Zone server (DNS Server) to be added on config file. It can be IPv4 address or FQDN"
+)
+@click.option(
+    "--keyring-name", 
+    callback=depend_on("zone_name", required=True), 
+    type=click.STRING, 
+    help="Zone keyring name to be added on config file"
+)
+@click.option(
+    "--keyring-value", 
+    callback=depend_on("zone_name", required=True), 
+    type=click.STRING, 
+    help="Zone keyring value to be added on config file"
+)
 @click.pass_context
 def configuration(ctx, show, **kwargs):
     config = ctx.obj["CONFIG"]
+    config_filepath = ctx.obj["CONFIG_FILEPATH"]
     if show:
-        for index, section in enumerate(config.sections()):
-            if section == "DEFAULTS":
-                click.echo(">> DEFAULTS Variable <<")
-                for key in config[section]:
-                    click.echo(f"-> {key}: {config[section][key]}")
-                click.echo("----------------\n")
-                click.echo(">> DNS Zone Variable <<")
-                continue
-
-            click.echo(f"[{index}] Zone ({section})")
-            for key in config[section]:
-                click.echo(f"-> {key.upper()}: {config[section][key]}")
+        show_config(config=config)
 
     if kwargs.get("zone_remove") is not None:
         zone = kwargs.get("zone_remove")
-        if config.has_section(zone):
-            config.remove_section(zone)
-            with open(ctx.obj["CONFIG_PATH"], "w") as configfile:
-                config.write(configfile)
+        if not config.has_section(zone):
+            raise click.BadParameter(message=f"Zone {zone} not found on config file ({config_filepath})")    
+
+        answer = prompt_y_n_question(f"Do you want to remove ({zone}) section from config file({config_filepath}) ?")
+        if answer:
+            remove_zone_section_config(
+                zone_section=zone, 
+                config=config, 
+                config_filepath=config_filepath
+            )
         else:
-            raise click.BadParameter(message=f"Zone {zone} not found")
+            sys.exit(1)
 
     elif kwargs.get("zone_name") is not None:
-        zone = kwargs.get("zone_name")
-        server = kwargs.get("zone_server")
-        keyring_name = kwargs.get("keyring_name")
-        keyring_value = kwargs.get("keyring_value")
-
-        config.add_section(zone)
-        config.set(zone, "server", server)
-        config.set(zone, "keyring_name", keyring_name)
-        config.set(zone, "keyring_value", keyring_value)
-        with open(ctx.obj["CONFIG_PATH"], "w") as configfile:
-            config.write(configfile)
+        make_zone_section_config(
+            data=kwargs, 
+            config=config,
+            config_filepath=config_filepath
+        )
 
 @cli.command("import", short_help="DNS Manager import record from zone")
-@click.argument("zone", required=True)
-@click.option("-f","--out-file", "out", type=click.File("w"),
-    help="Destination output file name after import record from DNS zone")
+@click.argument("zone", required=True, callback=check_availability_zone)
+@click.option(
+    "-f","--out-file", "out", 
+    default="out.json", 
+    type=click.File("w"), 
+    show_default=True, 
+    help="Destination output file name after import record from DNS zone"
+)
 @click.pass_context
-@zone_check
-def importing(ctx, service, zone, out):
+def importing_records(ctx, zone, out):
+    config = ctx.obj["CONFIG"]
+    service = init_service(config[zone])
     result = service.import_records(domain=zone)
     out.write(json.dumps(result, indent=4))
     click.echo(f"Successfully imported {len(result)} in {os.path.realpath(out.name)}")
 
 @cli.command("new", short_help="Add new DNS Record")
-@click.argument("record_name")
-@click.option("--zone", required=True, type=click.STRING, help="DNS Zone that available on configuration file")
-@click.option("--content", required=True, type=click.STRING, help="Record content")
-@click.option("--rtype", "rtype", type=click.Choice(RTYPE_CHOICES), default="A", help="Record type")
-@click.option("--ttl", type=click.INT, default=300, help="Record TTL")
-@click.option("--force", is_flag=True, help="Force adding record with replacing similar name")
+@click.argument("record_name", required=True)
+@click.option(
+    "--zone", 
+    required=True,
+    callback=check_availability_zone,
+    type=click.STRING, 
+    help="DNS Zone that available on configuration file"
+)
+@click.option(
+    "--content", 
+    required=True, 
+    type=click.STRING, 
+    help="Record content"
+)
+@click.option(
+    "--rtype", 
+    default="A", 
+    type=click.Choice(RTYPE_CHOICES), 
+    help="Record type", 
+    show_default=True
+)
+@click.option(
+    "--ttl", 
+    default=300, 
+    type=click.INT, 
+    show_default=True,
+    help="Record TTL"
+)
+@click.option(
+    "--force", 
+    is_flag=True, 
+    show_default=True,
+    help="Force adding record with replacing similar name"
+)
 @click.pass_context
-@zone_check
-def new(ctx, service, zone, record_name, content, rtype, ttl, force):
+def new_record(ctx, zone, record_name, content, rtype, ttl, force):
     config = ctx.obj["CONFIG"]
+    service = init_service(config[zone])
     rtype = rtype or config[zone]["rtype"] or config["DEFAULTS"]["rtype"]
     ttl = ttl or config[zone]["ttl"] or config["DEFAULTS"]["ttl"]
 
@@ -118,11 +196,11 @@ def new(ctx, service, zone, record_name, content, rtype, ttl, force):
         data = service.import_records(domain=zone)
         if data:
             exist = list(
-                filter(check_existing_record(name=record_name, zone=zone, rtype=rtype),data)
+                filter(check_existing_record_with_name(name=record_name, zone=zone, rtype=rtype),data)
             )
             if len(exist) > 0:
                 raise click.exceptions.UsageError(
-                    message=f"DNS Record already exist {record_name} in zone {zone}"
+                    message=f"DNS record already exist {record_name} in zone {zone}"
                 )
         result = service.add_record(
             zone=zone,
@@ -142,15 +220,37 @@ def new(ctx, service, zone, record_name, content, rtype, ttl, force):
         )
 
 @cli.command("update", short_help="Update a DNS Record")
-@click.argument("record_name")
-@click.option("--zone", required=True, type=click.STRING, help="DNS Zone that available on configuration file")
-@click.option("--content", required=True, type=click.STRING, help="Record content")
-@click.option("--rtype", type=click.Choice(RTYPE_CHOICES), default="A", help="Record type")
-@click.option("--ttl", type=click.INT, default=300, help="Record TTL")
+@click.argument("record_name", required=True)
+@click.option(
+    "--zone",
+    required=True, 
+    callback=check_availability_zone, 
+    type=click.STRING, 
+    help="DNS Zone that available on configuration file"
+)
+@click.option(
+    "--content",
+    required=True, 
+    type=click.STRING, help="Record content"
+)
+@click.option(
+    "--rtype",
+    default="A", 
+    type=click.Choice(RTYPE_CHOICES), 
+    show_default=True,
+    help="Record type"
+)
+@click.option(
+    "--ttl",
+    default=300, 
+    type=click.INT, 
+    show_default=True,
+    help="Record TTL"
+)
 @click.pass_context
-@zone_check
-def update(ctx, service, zone, record_name, content, rtype, ttl):
+def update_record(ctx, zone, record_name, content, rtype, ttl):
     config = ctx.obj["CONFIG"]
+    service = init_service(config[zone])
     rtype = rtype or config[zone]["rtype"] or config["DEFAULTS"]["rtype"]
     ttl = ttl or config[zone]["ttl"] or config["DEFAULTS"]["ttl"]
     
@@ -173,10 +273,16 @@ def update(ctx, service, zone, record_name, content, rtype, ttl):
 
 @cli.command("rm", short_help="Remove a DNS Record")
 @click.argument("fqdn", callback=fqdn_validator)
-@click.option("--zone", callback=zone_validator, type=click.STRING, help="DNS Zone that available on configuration file")
+@click.option(
+    "--zone", 
+    callback=zone_validator, 
+    type=click.STRING, 
+    help="DNS Zone that available on configuration file"
+)
 @click.pass_context
-@zone_check
-def remove(ctx, service, zone, record_name, fqdn):
+def remove_record(ctx, zone, record_name, fqdn):
+    config = ctx.obj["CONFIG"]
+    service = init_service(config[zone])
     result = service.remove_record(
         zone=zone,
         record_name=record_name
@@ -191,38 +297,52 @@ def remove(ctx, service, zone, record_name, fqdn):
         )
 
 @cli.command("check", short_help="Check a DNS Record")
-@click.argument("fqdn", callback=fqdn_validator)
-@click.option("--zone", callback=zone_validator, type=click.STRING, help="DNS Zone that available on configuration file")
+@click.argument("fqdn", required=False, callback=fqdn_validator)
+@click.option(
+    "--zone", 
+    callback=zone_validator, 
+    type=click.STRING,
+    help="DNS Zone that available on configuration file"
+)
+@click.option(
+    "--with-content", "content",
+    callback=depend_on("zone"),
+    type=click.STRING,
+    help="Content of the record to be check"
+)
 @click.pass_context
-@zone_check
-def check(ctx, service, zone, record_name, fqdn):
+def check_record(ctx, zone, fqdn, content=None, record_name=None):
+    config = ctx.obj["CONFIG"]
+    service = init_service(config[zone])
     data = service.import_records(domain=zone)
-    if data:
+    if not data:
+        click.echo("No Data")
+        sys.exit(1)
+    
+    exists = None
+    if content:
         exists = list(
-            filter(check_existing_record(name=record_name, zone=zone),data)
+            filter(check_existing_record_with_content(content=content, zone=zone), data)
+        )
+    elif zone and not record_name:
+        raise click.BadOptionUsage(message="FQDN is needed", option_name="zone")
+    elif record_name:
+        exists = list(
+            filter(check_existing_record_with_name(name=record_name, zone=zone),data)
         )
 
-        click.echo(">> DNS Record Information <<")
-        if not exists:
-            click.echo(f"FQDN ({fqdn}): Not available")
-        else:
-            for d in exists:
-                click.echo(f"-> FQDN: {fqdn}")
-                click.echo(f"-> Name: {d.get('name')}")
-                click.echo(f"-> Content: {d.get('content')}")
-                click.echo(f"-> RType: {d.get('rtype')}")
-                click.echo(f"-> TTL: {d.get('ttl')}")
-                click.echo(f"-> Zone: {d.get('zone')}\n")
-
+    click.echo(">> DNS Record Information <<")
+    if not exists:
+        click.echo(f"FQDN ({fqdn}): Not available")
     else:
-        click.echo("No data")
-
-cli.add_command(configuration)
-cli.add_command(importing)
-cli.add_command(check)
-cli.add_command(new)
-cli.add_command(update)
-cli.add_command(remove)
+        for d in exists:
+            fqdn = fqdn or f"{d.get('name')}.{d.get('zone')}"
+            click.echo(f"-> FQDN: {fqdn}")
+            click.echo(f"-> Name: {d.get('name')}")
+            click.echo(f"-> Content: {d.get('content')}")
+            click.echo(f"-> RType: {d.get('rtype')}")
+            click.echo(f"-> TTL: {d.get('ttl')}")
+            click.echo(f"-> Zone: {d.get('zone')}\n")
 
 if __name__ == "__main__":
     cli()

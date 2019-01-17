@@ -1,0 +1,32 @@
+
+apiVersion: 1
+
+zones:
+  - name: dev1.local
+    server: ns1.dev1.local
+    keyring_name: rndc-key
+    keyring_value: RNjdakslakvaXlks==
+    
+  - name: dev2.local
+    server: ns1.dev2.local
+    keyring_name: rndc-key
+    keyring_value: RNjxakslakvaXlks==
+
+records:
+  - name: cute-app-1
+    content: 192.168.1.1
+    rtype: A
+    ttl: 300
+    zone: dev1.local
+
+  - name: cute-app-2
+    content: 192.168.10.2
+    rtype: A
+    ttl: 300
+    zone: dev2.local
+  
+  - name: cute-app-3
+    content: 192.168.1.5
+    rtype: A
+    ttl: 300
+    zone: dev1.local
