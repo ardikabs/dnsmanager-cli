@@ -1,1 +1,1 @@
-# DNSManager CLI
+# DNS Manager Suites (CLI)
