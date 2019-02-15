@@ -12,16 +12,16 @@ from .callbacks import (
 )
 
 def show_dns(data):
-    click.echo(f"| FQDN | Name | Content | RType | TTL | Zone |")
+    click.echo(f"{'CONTENT': <15} {'RTYPE': <10} {'TTL': <10} {'ZONE': <15} {'NAME': <5}")
     for d in data:
-        click.echo(f"| "
-            f"{d.get('name')}.{d.get('zone')} | "
-            f"{d.get('name')} | "
-            f"{d.get('content')} | "
-            f"{d.get('rtype')} | "
-            f"{d.get('ttl')} | "
-            f"{d.get('zone')} |"
+        output = "{content: <15} {rtype: <10} {ttl: <10} {zone: <15} {name: <5}".format(
+            name=f"{d.get('name')}",
+            content=f"{d.get('content')}",
+            rtype=f"{d.get('rtype')}",
+            ttl=f"{d.get('ttl')}",
+            zone=f"{d.get('zone')}"
         )
+        click.echo(output)
 
 
 def searching_dns(config, available_zones, domain, content, rtype, ttl, zone):
