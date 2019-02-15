@@ -14,13 +14,12 @@ from .commands import init_command
     prog_name="DNSManager",
     message=('%(prog)s version %(version)s')
 )
-@click.option("--config-path", 
-    type=click.Path(exists=True),
-    envvar="DNSMANAGER_CONFIG_PATH", 
-    help="Configuration file path. You can set with ENV variable (DNSMANAGER_CONFIG_PATH) to be loaded automatically"
+@click.option("--config-file", 
+    type=click.File(),
+    help="Selected configuration file."
 )
 @click.pass_context
-def cli(ctx, config_path):
+def cli(ctx, config_file):
     """ 
     An DNS Manager to interact with DNS Server
 
@@ -28,8 +27,9 @@ def cli(ctx, config_path):
     """
 
     cfp = ConfigFileProcessor()
-    if config_path:
-        cfp.config_searchpath = [config_path]
+    if config_file:
+        cfp.config_files.append(config_file.name)
+        cfp.config_searchpath.append(os.path.abspath(os.path.dirname(config_file.name)))
 
     try:
         config = cfp.read_config()
