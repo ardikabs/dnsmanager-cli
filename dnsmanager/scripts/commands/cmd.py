@@ -57,7 +57,7 @@ def find(ctx, domain, content, rtype, ttl, zone):
 
     threading = Threading(searching_dns, **kwargs)
     
-    progressbar = click.progressbar(threading.progress, label=f"Searching Domain {domain}", show_eta=True) 
+    progressbar = click.progressbar(threading.progress, label=f"Searching Domain ({domain})", show_eta=True) 
     with progressbar:
         for progress in progressbar:
             if threading.exception:

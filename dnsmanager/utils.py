@@ -85,3 +85,80 @@ def build_dict(seq, keys):
 
     else:
         return dict((d[keys], dict(d, index=index)) for (index, d) in enumerate(seq))
+
+
+class Formatter(object):
+
+    @staticmethod
+    def get_length(d):
+        if isinstance(d, list):
+            return len(str(d[0]))
+        return len(str(d))
+
+    @classmethod
+    def from_object(cls, data, headers=[], attr=[], padding=5):
+        arr = [headers]
+        arr.extend(cls.create_arr_from_object(data, attr))
+        widths = [max(map(cls.get_length, col)) for col in zip(*arr)]
+
+        result = [" ".join(map(cls._get(5), zip(ar, widths))) for ar in arr]
+        return result
+
+    @classmethod
+    def from_dict(cls, data, headers=[], attr=[], padding=5):
+        arr = [headers]
+        arr.extend(cls.create_arr_from_dict(data, attr))
+        widths = [max(map(cls.get_length, col)) for col in zip(*arr)]
+
+        result = [" ".join(map(cls._get(padding), zip(ar, widths))) for ar in arr]
+        return result
+
+    @classmethod
+    def from_arr(cls, data, headers=[], padding=5):
+        arr = [headers]
+        arr.extend(data)
+        widths = [max(map(cls.get_length, col)) for col in zip(*arr)]
+
+        result = [" ".join(map(cls._get(padding), zip(ar, widths))) for ar in arr]
+        return result
+
+    @staticmethod
+    def _get(padding):
+        def func(data):
+            val, width = data
+            if isinstance(val, list):
+                val = val[0]
+
+            return f"{val if val else '-':<{width+padding}}"
+        return func
+
+    @staticmethod
+    def create_arr_from_dict(data, attr):
+        if isinstance(data, list):
+            for dict_ in data:
+                yield [dict_[at] for at in attr]
+        else:
+            yield [dict_[at] for at in attr]
+
+    @staticmethod
+    def create_arr_from_object(data, attr=None):
+        if isinstance(data, list):
+            for obj in data:
+                if isinstance(obj, object) and not attr:
+                    raise AttributeError("Object attribute are not defined")
+
+                yield [rgetattr(obj, at) for at in attr]
+        else:
+            yield [rgetattr(obj, at) for at in attr]
+
+
+import functools
+
+def rsetattr(obj, attr, val):
+    pre, _, post = attr.rpartition('.')
+    return setattr(rgetattr(obj, pre) if pre else obj, post, val)
+
+def rgetattr(obj, attr, *args):
+    def _getattr(obj, attr):
+        return getattr(obj, attr, *args)
+    return functools.reduce(_getattr, [obj] + attr.split('.'))

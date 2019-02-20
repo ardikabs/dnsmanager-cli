@@ -2,6 +2,7 @@
 import click
 
 from dnsmanager.scripts.config import ConfigFileProcessor
+from dnsmanager import utils
 from .services import init_dns_service
 from .callbacks import (
     check_domain,
@@ -12,17 +13,12 @@ from .callbacks import (
 )
 
 def show_dns(data):
-    click.echo(f"{'CONTENT': <15} {'RTYPE': <10} {'TTL': <10} {'ZONE': <15} {'NAME': <5}")
-    for d in data:
-        output = "{content: <15} {rtype: <10} {ttl: <10} {zone: <15} {name: <5}".format(
-            name=f"{d.get('name')}",
-            content=f"{d.get('content')}",
-            rtype=f"{d.get('rtype')}",
-            ttl=f"{d.get('ttl')}",
-            zone=f"{d.get('zone')}"
-        )
-        click.echo(output)
-
+    output = utils.Formatter.from_dict(
+        data, 
+        headers=["NAME", "CONTENT", "RTYPE", "TTL", "ZONE"],
+        attr=["name", "content", "rtype", "ttl", "zone"]
+    )
+    click.echo("\n".join(output))
 
 def searching_dns(config, available_zones, domain, content, rtype, ttl, zone):
     data = []
