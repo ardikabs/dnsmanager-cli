@@ -149,7 +149,7 @@ class Formatter(object):
 
                 yield [rgetattr(obj, at) for at in attr]
         else:
-            yield [rgetattr(obj, at) for at in attr]
+            yield [rgetattr(data, at) for at in attr]
 
 
 import functools
