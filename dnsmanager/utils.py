@@ -105,9 +105,9 @@ class Formatter(object):
         return result
 
     @classmethod
-    def from_dict(cls, data, headers=[], attr=[], padding=5):
+    def from_dict(cls, data, headers=[], attr=[], padding=5, nested=False):
         arr = [headers]
-        arr.extend(cls.create_arr_from_dict(data, attr))
+        arr.extend(cls.create_arr_from_dict(data, attr, nested=nested))
         widths = [max(map(cls.get_length, col)) for col in zip(*arr)]
 
         result = [" ".join(map(cls._get(padding), zip(ar, widths))) for ar in arr]
@@ -133,12 +133,20 @@ class Formatter(object):
         return func
 
     @staticmethod
-    def create_arr_from_dict(data, attr):
+    def create_arr_from_dict(data, attr, nested=False):
         if isinstance(data, list):
             for dict_ in data:
-                yield [dict_[at] for at in attr]
+                if nested:
+                    dict_ = dotdict(dict_)
+                    yield [dict_.got(at) for at in attr]
+                else:
+                    yield [dict_[at] for at in attr]
         else:
-            yield [dict_[at] for at in attr]
+            if nested:
+                data = dotdict(data)
+                yield [data.got(at) for at in attr]
+            else:
+                yield [data[at] for at in attr]
 
     @staticmethod
     def create_arr_from_object(data, attr=None):
@@ -162,3 +170,21 @@ def rgetattr(obj, attr, *args):
     def _getattr(obj, attr):
         return getattr(obj, attr, *args)
     return functools.reduce(_getattr, [obj] + attr.split('.'))
+
+class dotdict(dict):
+    """dot.notation access to dictionary attributes"""
+    def __getattr__(*args): 
+        val = dict.get(*args) 
+        return dotdict(val) if type(val) is dict else val 
+    
+    __setattr__ = dict.__setitem__ 
+    __delattr__ = dict.__delitem__
+
+    def got(self, key):
+        obj = self
+        key = key.split(".")
+        for k in key:
+            if not isinstance(obj, dict):
+                break
+            obj=obj[k]
+        return obj
